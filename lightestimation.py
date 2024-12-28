@@ -2,7 +2,9 @@ import cv2
 import numpy as np
 
 # Load and convert the image to grayscale
-image_path = r"C:\Users\anush\OneDrive\Documents\PSU\Research\semi_transparent (1)\semi_transparent\Bracquemond\le-gouter-1880.jpg"
+# image_path = r"semi_transparent (1)\semi_transparent\Bracquemond\le-gouter-1880.jpg"
+image_path = r"C:\Users\anush\GitHubRepos\lightEstimation\semi_transparent (1)\f96c65bd0351c92036c72e48eb7a8576.jpg"
+# image_path = r"semi_transparent (1)\semi_transparent\Bracquemond\louise-quivoron-aka-woman-in-the-garden-1877.jpg"
 image = cv2.imread(image_path)
 gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -108,8 +110,40 @@ cv2.imshow("Estimated Light Source Direction", output_image)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
-# Try on more paintings
+# # Use k-means clustering for light direction estimation
+# # Ensure the grayscale image shape matches your expectations
+# print("Gray Image Shape:", gray_image.shape)
 
-# Segment anything, compare cluster results
-# Extract colors as features to predict semi-transparent 
-# suyang
+# # Flatten the image for clustering
+# pixel_values = gray_image.flatten().reshape((-1, 1)).astype(np.float32)
+# print("Pixel Values Shape:", pixel_values.shape)
+# # Apply K-means clustering
+# k = 5  # Number of clusters
+# criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+# _, labels, centers = cv2.kmeans(pixel_values, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+# # Assign each cluster a unique color
+# colors = np.array([[0, 0, 0], [128, 128, 128], [255, 255, 255], [255, 0, 0], [0, 0, 255]]) 
+# colored_image = colors[labels.flatten()]
+# clustered_image = colored_image.reshape((gray_image.shape[0], gray_image.shape[1], 3))
+
+# # Convert clustered_image to uint8
+# clustered_image = np.uint8(clustered_image)
+
+# # Display the clustered image
+# cv2.imshow("Clustered Image", clustered_image)
+
+# # Overlay edges on the clustered image
+# edges = cv2.Canny(gray_image, 50, 150)  # Detect edges
+# overlay = cv2.addWeighted(clustered_image, 0.7, cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR), 0.3, 0)
+# cv2.imshow("Clustered with Edges", overlay)
+
+# # Highlight the brightest cluster
+# bright_cluster = np.argmax(centers)  # Cluster with the highest intensity value
+# mask = (labels.flatten() == bright_cluster).reshape(gray_image.shape).astype(np.uint8) * 255
+# cv2.imshow("Bright Region", mask)
+
+# cv2.waitKey(0)
+# cv2.destroyAllWindows()
+
+
