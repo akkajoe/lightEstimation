@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter1d
 
 #image_path = "semi_transparent (1)\Images\le-gouter-1880.jpg"
-#image_path = "semi_transparent (1)\Images\Amanda-Coldicutt--700x1050.jpg"
-image_path = "e375fd3098f705c806209a0c0dbd2674.jpg"
+image_path = "semi_transparent (1)\semi_transparent\Photo\short.jpg"
 image = cv2.imread(image_path)
 gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
