@@ -1,149 +1,161 @@
 import cv2
 import numpy as np
+from scipy.optimize import least_squares
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter1d
 
-# Load and convert the image to grayscale
-# image_path = r"semi_transparent (1)\semi_transparent\Bracquemond\le-gouter-1880.jpg"
-image_path = r"C:\Users\anush\GitHubRepos\lightEstimation\semi_transparent (1)\f96c65bd0351c92036c72e48eb7a8576.jpg"
-# image_path = r"semi_transparent (1)\semi_transparent\Bracquemond\louise-quivoron-aka-woman-in-the-garden-1877.jpg"
+#image_path = "semi_transparent (1)\Images\le-gouter-1880.jpg"
+#image_path = "semi_transparent (1)\Images\Amanda-Coldicutt--700x1050.jpg"
+image_path = "e375fd3098f705c806209a0c0dbd2674.jpg"
 image = cv2.imread(image_path)
 gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-# Apply Gaussian Blurring
 blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
-# Apply Sobel filters
-sobel_x = cv2.Sobel(blurred_image, cv2.CV_64F, 1, 0, ksize=3)
-sobel_y = cv2.Sobel(blurred_image, cv2.CV_64F, 0, 1, ksize=3) # cv2.CV_64F: Data type to hold gradients with potential negative values.
+canny_edges = cv2.Canny(blurred_image, 110, 200)
+contours, _ = cv2.findContours(canny_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-# Calculate gradient magnitude and direction 
-gradient_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-gradient_direction = np.arctan2(sobel_y, sobel_x)
+def compute_normals_from_tangents(contour):
+    normals = []
+    for i in range(1, len(contour) - 1):  # Avoid boundary points
+        p_prev = contour[i - 1][0]
+        p_next = contour[i + 1][0]
+        tangent = p_next - p_prev
+        tangent_norm = np.linalg.norm(tangent)
+        if tangent_norm > 0:
+            normal = np.array([-tangent[1], tangent[0]]) / tangent_norm
+            normals.append(normal)
+    return normals
 
-# Apply Canny edge detection
-canny_edges = cv2.Canny(blurred_image, 50, 150)
+def sample_intensities_along_tangent_normals(contour, gray_image):
+    sampled_intensities = []
+    sampled_normals = []
 
-# Find contours
-contours, hierarchy = cv2.findContours(canny_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)  # cv2.RETR_TREE: Retrieves all contours and reconstructs a full hierarchy of nested contours
-# cv2.CHAIN_APPROX_SIMPLE: Compresses horizontal, vertical, and diagonal segments and leaves only their end points, reducing memory usage.
-# contours: A list of all detected contours, where each contour is an array of (x, y) coordinates representing a boundary point.
+    normals = compute_normals_from_tangents(contour)
+    for i, normal in enumerate(normals):
+        point = contour[i + 1][0]
+        x, y = point
+        normal_length = 10
+        intensities = []
+        for d in range(-normal_length, normal_length + 1):
+            sample_x = int(x + d * normal[0])
+            sample_y = int(y + d * normal[1])
+            if 0 <= sample_x < gray_image.shape[1] and 0 <= sample_y < gray_image.shape[0]:
+                intensities.append(gray_image[sample_y, sample_x])
 
-# Occluding Contour Analysis - Draw normal vectors and sample intensity
-intensity_values = []
-direction_vectors = []
+        if intensities:
+            sampled_intensities.append(np.mean(intensities))
+            sampled_normals.append(normal)
+
+    return sampled_intensities, sampled_normals
+
+def fit_reflectance_model(normals, intensities):
+    def residuals(params):
+        rho, theta = params
+        predicted_intensities = []
+        for normal in normals:
+            cos_theta = max(np.dot(normal, [np.cos(theta), np.sin(theta)]), 0)
+            predicted_intensities.append(rho * cos_theta)
+        return np.array(predicted_intensities) - intensities
+
+    initial_guess = [1.0, 0.0]
+    result = least_squares(residuals, initial_guess, bounds=([0, -np.pi], [np.inf, np.pi]))
+    return result.x
+
+# Collect data across all contours
+all_intensities = []
+all_normals = []
+
 for contour in contours:
-    for point in contour:
-        x, y = point[0]
+    intensities, normals = sample_intensities_along_tangent_normals(contour, gray_image)
+    all_intensities.extend(intensities)
+    all_normals.extend(normals)
 
-        if 0 <= y < gradient_direction.shape[0] and 0 <= x < gradient_direction.shape[1]: # To avoid index errors
-            angle = gradient_direction[y, x] # Represents the direction at which the gradient is pointing at the pixel
+# Fit the Lambertian reflectance model
+all_intensities = np.array(all_intensities)
+all_normals = np.array(all_normals)
+if len(all_intensities) > 0 and len(all_normals) > 0:
+    rho, theta = fit_reflectance_model(all_normals, all_intensities)
 
-            # Calculate normal vectors (outward)
-            normal_length = 10
-            normal_x = int(x + normal_length * np.sin(angle))
-            normal_y = int(y - normal_length * np.cos(angle))
+    illumination_angle = np.degrees(theta)
+    print(f"Estimated illumination angle: {illumination_angle:.2f} degrees")
+    print(f"Estimated albedo (rho): {rho:.2f}")
 
-            # Sample pixel intensities along the normal vector
-            sampled_intensities = []
-            for i in range(1, normal_length + 1):
-                sample_x = int(x + i * np.sin(angle))
-                sample_y = int(y - i * np.cos(angle))
-                if 0 <= sample_y < gray_image.shape[0] and 0 <= sample_x < gray_image.shape[1]:
-                    intensity_value = gray_image[sample_y, sample_x]
-                    sampled_intensities.append(intensity_value)
-                    intensity_values.append(intensity_value)
-            
-            if len(sampled_intensities) > 1:
-                intensity_gradients = np.diff(sampled_intensities) # np.diff(sampled_intensities): Calculates the difference between consecutive intensity values to create an array representing the gradient (change in intensity) along the normal vector.
-                mean_gradient = np.mean(intensity_gradients) # To avoid noise using an average
-                
-            if mean_gradient > 0: # light source may be in direction of N
-                normal_vector = np.array([np.sin(angle), -np.cos(angle)])
-                direction_vectors.append((normal_vector, mean_gradient))
+    predicted_intensities = []
+    light_direction = np.array([np.cos(theta), np.sin(theta)])
+    for normal in all_normals:
+        cos_theta = max(np.dot(normal, light_direction), 0)
+        predicted_intensities.append(rho * cos_theta)
+    predicted_intensities = np.array(predicted_intensities)
 
-# Highlight bright regions in the image based on intensity threshold
-threshold = 180 
-mask = (gray_image > threshold).astype(np.uint8) * 255  # Create a binary mask
+    # Normalize the observed and predicted intensities
+    all_intensities = all_intensities / np.max(all_intensities)
+    predicted_intensities = predicted_intensities / np.max(predicted_intensities)
+    residuals = all_intensities - predicted_intensities
 
-# Apply the mask as an overlay on the original image
-highlighted_image = cv2.addWeighted(image, 0.4, cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), 0.6, 0)
+    # Smooth the predicted intensities
+    smoothed_predicted = gaussian_filter1d(predicted_intensities, sigma=10)
 
-# Stack the original image, edges, and highlighted image side by side
-edges_colored = cv2.cvtColor(canny_edges, cv2.COLOR_GRAY2BGR)  # Convert edges to 3-channel for display
-image_comparisons = np.hstack([image, edges_colored, highlighted_image])
+    # Sample data points for clearer visualization
+    sample_indices = np.linspace(0, len(all_intensities) - 1, 500, dtype=int)
+    sampled_observed = all_intensities[sample_indices]
+    sampled_predicted = predicted_intensities[sample_indices]
+    sampled_smoothed = smoothed_predicted[sample_indices]
 
-# Display the images
-cv2.imshow("Original, Edges, and Highlighted Image", image_comparisons)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    # Plot observed vs. predicted intensities
+    plt.figure(figsize=(8, 6))
+    plt.scatter(sample_indices, sampled_observed, label="Observed Intensities (Sampled)", color="blue", alpha=0.6, s=10)
+    plt.plot(sample_indices, sampled_predicted, label="Predicted Intensities (Sampled)", color="red", linestyle="--", alpha=0.6)
+    plt.plot(sample_indices, sampled_smoothed, label="Smoothed Predicted Trend", color="green", linewidth=2)
+    plt.xlabel("Sample Index")
+    plt.ylabel("Normalized Intensity")
+    plt.title("Observed vs. Predicted Intensities (Sampled)")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-''' Key Obeservations to make:
-- Brightness Increase/Decrease: If the intensities increase outward from the contour, the light source may be in that direction. 
-Conversely, if the intensities decrease, the light source might be behind or opposite that direction.
-- If multiple sampled normals around the object show similar intensity changes, the average of these vectors can help point to the direction of the light source.
-- Areas where the intensity sharply decreases indicate shadows (light is coming from the opposite direction), 
-and areas where the intensity increases indicate highlights (light is coming from that direction).
-'''
+    # Sample residuals for clarity
+    sampled_residuals = residuals[sample_indices]
 
-if direction_vectors:
-    weighted_sum = np.sum([v * weight for v, weight in direction_vectors], axis = 0)
-    estimated_light_direction = weighted_sum/np.linalg.norm(weighted_sum)
+    # Plot residuals
+    plt.figure(figsize=(8, 6))
+    plt.plot(sample_indices, sampled_residuals, label="Residuals", color="green")
+    plt.axhline(0, color='black', linestyle='--', linewidth=1, label="Zero")
+    plt.xlabel("Sample Index")
+    plt.ylabel("Residual (Observed - Predicted)")
+    plt.title("Residuals of Observed vs. Predicted Intensities (Sampled)")
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-output_image = image.copy()
-start_point = (output_image.shape[1] // 2, output_image.shape[0] // 2) # center of the image
-arrow_length = 200 
-end_point = (
-    int(start_point[0] + arrow_length * estimated_light_direction[0]),
-    int(start_point[1] + arrow_length * estimated_light_direction[1])
-)
+    mae = np.mean(np.abs(residuals))
+    rmse = np.sqrt(np.mean(residuals**2))
 
-# Draw the arrow on the image
-cv2.arrowedLine(
-    output_image,
-    start_point,
-    end_point,
-    color=(0, 255, 0),  
-    thickness=2,
-    tipLength=0.3  
-)
-
-cv2.imshow("Estimated Light Source Direction", output_image)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
-
-# # Use k-means clustering for light direction estimation
-# # Ensure the grayscale image shape matches your expectations
-# print("Gray Image Shape:", gray_image.shape)
-
-# # Flatten the image for clustering
-# pixel_values = gray_image.flatten().reshape((-1, 1)).astype(np.float32)
-# print("Pixel Values Shape:", pixel_values.shape)
-# # Apply K-means clustering
-# k = 5  # Number of clusters
-# criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
-# _, labels, centers = cv2.kmeans(pixel_values, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
-
-# # Assign each cluster a unique color
-# colors = np.array([[0, 0, 0], [128, 128, 128], [255, 255, 255], [255, 0, 0], [0, 0, 255]]) 
-# colored_image = colors[labels.flatten()]
-# clustered_image = colored_image.reshape((gray_image.shape[0], gray_image.shape[1], 3))
-
-# # Convert clustered_image to uint8
-# clustered_image = np.uint8(clustered_image)
-
-# # Display the clustered image
-# cv2.imshow("Clustered Image", clustered_image)
-
-# # Overlay edges on the clustered image
-# edges = cv2.Canny(gray_image, 50, 150)  # Detect edges
-# overlay = cv2.addWeighted(clustered_image, 0.7, cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR), 0.3, 0)
-# cv2.imshow("Clustered with Edges", overlay)
-
-# # Highlight the brightest cluster
-# bright_cluster = np.argmax(centers)  # Cluster with the highest intensity value
-# mask = (labels.flatten() == bright_cluster).reshape(gray_image.shape).astype(np.uint8) * 255
-# cv2.imshow("Bright Region", mask)
-
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
+    print(f"Mean Absolute Error (MAE): {mae:.4f}")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
+    print(f"Mean Residual: {np.mean(residuals):.4f}")
+    print(f"Standard Deviation of Residuals: {np.std(residuals):.4f}")
 
 
+    # Display results
+    height, width, _ = image.shape
+    center = (width // 2, height // 2)
+    end_point = (
+        int(center[0] + 200 * np.cos(theta)),
+        int(center[1] - 200 * np.sin(theta))
+    )
+    output_image = image.copy()
+    cv2.arrowedLine(
+        output_image,
+        end_point,
+        center,
+        color=(0, 255, 0),
+        thickness=2,
+        tipLength=0.1
+    )
+    cv2.imshow("Estimated Light Source Direction", output_image)
+    cv2.imshow("Original Image", image)
+    cv2.imshow("Contours", canny_edges)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+else:
+    print("Insufficient data to estimate light direction.")
