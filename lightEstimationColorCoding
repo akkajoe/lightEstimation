@@ -1,0 +1,144 @@
+import cv2
+import numpy as np
+from scipy.optimize import least_squares
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter1d
+import matplotlib.cm as cm
+from matplotlib.colors import Normalize
+
+predicted_angles = []
+
+image_path = r"semi_transparent (1)\semi_transparent\Renoir\madame-darras-as-an-horsewoman-1873.jpg"
+
+#image_path = "semi_transparent (1)\semi_transparent\Photo\short.jpg"
+image = cv2.imread(image_path)
+gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+
+canny_edges = cv2.Canny(blurred_image, 100, 150)
+contours, _ = cv2.findContours(canny_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+def compute_normals_from_tangents(contour):
+    normals = []
+    for i in range(1, len(contour) - 1):  # Avoid boundary points
+        p_prev = contour[i - 1][0]
+        p_next = contour[i + 1][0]
+        tangent = p_next - p_prev
+        tangent_norm = np.linalg.norm(tangent)
+        if tangent_norm > 0:
+            normal = np.array([-tangent[1], tangent[0]]) / tangent_norm
+            normals.append(normal)
+    return normals
+
+def sample_normals_and_intensities(contour, gray_image):
+    """
+    Extracts normals and sampled intensities along the normals for each point in a contour.
+    Returns a list of (point, normal, intensity) tuples.
+    """
+    normals_and_intensities = []
+
+    normals = compute_normals_from_tangents(contour)
+    for i, normal in enumerate(normals):
+        point = contour[i + 1][0]  # Skip the first and last points
+        x, y = point
+        normal_length = 10
+        intensities = []
+
+        for d in range(-normal_length, normal_length + 1):
+            sample_x = int(x + d * normal[0])
+            sample_y = int(y + d * normal[1])
+            if 0 <= sample_x < gray_image.shape[1] and 0 <= sample_y < gray_image.shape[0]:
+                intensities.append(gray_image[sample_y, sample_x])
+
+        if intensities:
+            mean_intensity = np.mean(intensities)
+            normals_and_intensities.append((point, normal, mean_intensity))
+
+    return normals_and_intensities
+
+def fit_reflectance_model_for_point(normal, intensity):
+    def residuals(params):
+        rho, theta = params
+        cos_theta = max(np.dot(normal, [np.cos(theta), np.sin(theta)]), 0)
+        predicted_intensity = rho * cos_theta
+        return predicted_intensity - intensity
+    
+    initial_guess = [1.0, 0.0]
+    result = least_squares(residuals, initial_guess, bounds=([0, -np.pi], [np.inf, np.pi]))
+    return result.x
+
+point_results = []
+
+for contour in contours:
+    normals = compute_normals_from_tangents(contour)
+    for i, normal in enumerate(normals):
+        point = contour[i + 1][0]  # Skip the boundary points as before
+        x, y = point
+        normal_length = 10
+        intensities = []
+
+        for d in range(-normal_length, normal_length + 1):
+            sample_x = int(x + d * normal[0])
+            sample_y = int(y + d * normal[1])
+            if 0 <= sample_x < gray_image.shape[1] and 0 <= sample_y < gray_image.shape[0]:
+                intensities.append(gray_image[sample_y, sample_x])
+
+        if intensities:
+            # Use the mean intensity along the normal
+            mean_intensity = np.mean(intensities)
+
+            # Fit the Lambertian model for this single point
+            rho, theta = fit_reflectance_model_for_point(normal, mean_intensity)
+            illumination_angle = np.degrees(theta)
+
+            # Store results
+            point_results.append({
+                "point": (x, y),
+                "rho": rho,
+                "theta": illumination_angle
+            })
+
+# Normalize illumination angles to [0, 1] for colormap mapping
+angles = [result['theta'] for result in point_results]
+if angles:  # Check if there are any results
+    min_angle = min(angles)
+    max_angle = max(angles)
+    print('min and max angle', min_angle, max_angle)
+    norm_angles = [(angle - min_angle) / (max_angle - min_angle) for angle in angles]
+
+    # Use the updated way to get a colormap
+    colormap = plt.colormaps["coolwarm"]  # Choose your desired colormap (e.g., 'viridis', 'plasma', 'coolwarm')
+
+    # Apply colors to each point
+    output_image = image.copy()
+    for result, norm_angle in zip(point_results, norm_angles):
+        x, y = result['point']
+        color = colormap(norm_angle)  # Get RGBA value from the colormap
+        bgr_color = tuple(int(c * 255) for c in color[:3])  # Convert RGB to BGR for OpenCV
+
+        # Draw a small circle at each point
+        cv2.circle(output_image, (x, y), 2, bgr_color, -1)
+
+    # Convert BGR image (from OpenCV) to RGB for Matplotlib
+    rgb_image = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
+
+    # Create a Matplotlib figure and Axes
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # Display the image on the Axes
+    img = ax.imshow(rgb_image)
+
+    # Create a mappable object for the colorbar
+    norm = Normalize(vmin=min_angle, vmax=max_angle)
+    scalar_mappable = cm.ScalarMappable(cmap=colormap, norm=norm)
+    scalar_mappable.set_array([])  # Required to make the ScalarMappable valid
+
+    # Add a colorbar to the figure
+    cbar = fig.colorbar(scalar_mappable, ax=ax, orientation="vertical", label="Illumination Angle (Degrees)")
+
+    # Finalize the plot
+    ax.set_title("Illumination Angles Visualized with Colors")
+    ax.axis("off")  # Hide axes for a cleaner look
+    plt.show()
+else:
+    print("No valid points to visualize.")
