@@ -1,1 +1,3 @@
 # lightEstimation
+
+lightEstiationColorCoding.py loads and preprocesses an image, converts it to grayscale and applies Gaussian Blur. Edges/Contours are detected using Canny Edge Detection, normal is computed along contours and sample intensities along the normals. A Lambertian Reflectance Model estimates local estimation angles. These angles are visualized using a color-coded plot to denote different possible illumination angles along the contour points. K-Means Clustering is applied to determine the most dominant angle, points within a threshold from this predicted dominant angle are displayed on the output image. 
