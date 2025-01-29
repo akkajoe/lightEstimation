@@ -2,15 +2,15 @@ import cv2
 import numpy as np
 from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter1d
 import matplotlib.cm as cm
 from matplotlib.colors import Normalize
+from sklearn.cluster import KMeans
 
 predicted_angles = []
+num_clusters = 1
 
-image_path = r"semi_transparent (1)\semi_transparent\Renoir\madame-darras-as-an-horsewoman-1873.jpg"
+image_path = r"consistent light source images\three-mini-pumpkins-in-a-beam-of-sunlight.jpg"
 
-#image_path = "semi_transparent (1)\semi_transparent\Photo\short.jpg"
 image = cv2.imread(image_path)
 gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
@@ -100,16 +100,14 @@ for contour in contours:
 
 # Normalize illumination angles to [0, 1] for colormap mapping
 angles = [result['theta'] for result in point_results]
+print(angles, 'type', type)
 if angles:  # Check if there are any results
     min_angle = min(angles)
     max_angle = max(angles)
     print('min and max angle', min_angle, max_angle)
     norm_angles = [(angle - min_angle) / (max_angle - min_angle) for angle in angles]
 
-    # Use the updated way to get a colormap
-    colormap = plt.colormaps["coolwarm"]  # Choose your desired colormap (e.g., 'viridis', 'plasma', 'coolwarm')
-
-    # Apply colors to each point
+    colormap = plt.colormaps["hsv"]  
     output_image = image.copy()
     for result, norm_angle in zip(point_results, norm_angles):
         x, y = result['point']
@@ -122,10 +120,8 @@ if angles:  # Check if there are any results
     # Convert BGR image (from OpenCV) to RGB for Matplotlib
     rgb_image = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
 
-    # Create a Matplotlib figure and Axes
+    # Create a Matplotlib figure 
     fig, ax = plt.subplots(figsize=(10, 8))
-
-    # Display the image on the Axes
     img = ax.imshow(rgb_image)
 
     # Create a mappable object for the colorbar
@@ -138,7 +134,51 @@ if angles:  # Check if there are any results
 
     # Finalize the plot
     ax.set_title("Illumination Angles Visualized with Colors")
-    ax.axis("off")  # Hide axes for a cleaner look
+    ax.axis("off")  
     plt.show()
+
+    angles_rad = np.radians(angles)
+    X = np.column_stack([
+        np.cos(angles_rad),
+        np.sin(angles_rad)
+    ])
+    
+    # Perform KMeans with only one domiinant cluster
+    kmeans = KMeans(n_clusters=1, random_state=42).fit(X)
+    
+    # Get the dominant angle
+    dominant_center = kmeans.cluster_centers_[0]
+    dominant_angle = np.degrees(np.arctan2(dominant_center[1], dominant_center[0])) % 360
+    
+    # Create a new image for visualization
+    cluster_image = image.copy()
+    
+    # Define a threshold for angle similarity (e.g., within 30 degrees of dominant angle)
+    angle_threshold = 10
+    
+    # Draw points that are close to the dominant angle
+    for result in point_results:
+        x, y = result['point']
+        pred_angle = result['theta']
+        angle_diff = min((pred_angle - dominant_angle) % 360, (dominant_angle - pred_angle) % 360)
+        
+        if angle_diff <= angle_threshold:
+            # Draw a small circle at each point close to the dominant angle
+            cv2.circle(cluster_image, (x, y), 2, (0, 0, 255), -1)  # Red color for points close to dominant angle
+    
+    # Convert BGR image (from OpenCV) to RGB for Matplotlib
+    rgb_image = cv2.cvtColor(cluster_image, cv2.COLOR_BGR2RGB)
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    img = ax.imshow(rgb_image)
+
+    ax.set_title(f"Points Close to Dominant Angle: {dominant_angle:.2f}°")
+    ax.axis("off")  
+    plt.show()
+
+    print(f"Dominant Angle: {dominant_angle:.2f}°")
+    print(f"Number of points close to dominant angle: {np.sum(np.abs(np.array(angles) - dominant_angle) <= angle_threshold)}")
+
+
 else:
     print("No valid points to visualize.")
