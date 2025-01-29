@@ -9,7 +9,7 @@ from sklearn.cluster import KMeans
 predicted_angles = []
 num_clusters = 1
 
-image_path = r"consistent light source images\three-mini-pumpkins-in-a-beam-of-sunlight.jpg "
+image_path = r"consistent light source images\AdobeStock_1097277915_Preview.jpeg"
 
 image = cv2.imread(image_path)
 gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -142,6 +142,7 @@ if angles:  # Check if there are any results
         np.sin(angles_rad)
     ])
     
+    pred_angles = []
     # Perform KMeans with only one domiinant cluster
     kmeans = KMeans(n_clusters=1, random_state=42).fit(X)
     
@@ -153,21 +154,28 @@ if angles:  # Check if there are any results
     cluster_image = image.copy()
     
     # Define a threshold for angle similarity 
-    angle_threshold = 10
+    angle_threshold = 25
     
     # Draw points that are close to the dominant angle
     for result in point_results:
         x, y = result['point']
         pred_angle = result['theta']
+        pred_angles.append(pred_angle)
         angle_diff = min((pred_angle - dominant_angle) % 360, (dominant_angle - pred_angle) % 360)
         
-        if angle_diff <= angle_threshold:
+        if angle_diff <= angle_threshold and pred_angle != 0.0:
             # Draw a small circle at each point close to the dominant angle
             cv2.circle(cluster_image, (x, y), 2, (0, 0, 255), -1)  # Red color for points close to dominant angle
     
     # Convert BGR image (from OpenCV) to RGB for Matplotlib
     rgb_image = cv2.cvtColor(cluster_image, cv2.COLOR_BGR2RGB)
 
+    # Visualize the distribution of detected angles
+    plt.hist(pred_angles, bins=30, color='blue', alpha=0.7)
+    plt.xlabel("Angle (degrees)")
+    plt.ylabel("Frequency")
+    plt.title("Distribution of Detected Angles")
+    plt.show()
     fig, ax = plt.subplots(figsize=(10, 8))
     img = ax.imshow(rgb_image)
 
@@ -176,8 +184,7 @@ if angles:  # Check if there are any results
     plt.show()
 
     print(f"Dominant Angle: {dominant_angle:.2f}°")
-    print(f"Number of points close to dominant angle: {np.sum(np.abs(np.array(angles) - dominant_angle) <= angle_threshold)}")
-
+    print(f"Number of points close to dominant angle: {np.sum((np.abs(np.array(angles) - dominant_angle) <= angle_threshold) & (np.array(angles) != 0.0))}")
 
 else:
     print("No valid points to visualize.")
