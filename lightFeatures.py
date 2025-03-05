@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-img = cv2.imread('semi_transparent (1)\Images\le-gouter-1880.jpg')
+img = cv2.imread(r'semi_transparent (1)\Images\on-the-terrace-at-s-vres-1880.jpg')
 
 # Luminance measurement using LAB color space
 img_lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
@@ -63,9 +63,8 @@ plt.show()
 # Compute perceived brightness for each pixel using HSP color model
 perceived_brightness = np.sqrt(0.299 * (R ** 2) + 0.587 * (G ** 2) + 0.114 * (B ** 2))
 mean_perceived_brightness = np.mean(perceived_brightness)
-print(f"Mean Perceived Brightness (Finley's Formula): {mean_perceived_brightness:.2f}")
+print(f"Mean Perceived Brightness: {mean_perceived_brightness:.2f}")
 
-# --- Visualization ---
 plt.figure(figsize=(12, 5))
 
 # Display original image
@@ -77,13 +76,13 @@ plt.axis('off')
 # Display HSV brightness channel
 plt.subplot(1, 3, 2)
 plt.imshow(v_channel, cmap='gray')
-plt.title("HSV Brightness (V-channel)")
+plt.title(f"mean brightness{mean_hsv_brightness:.2f}")
 plt.axis('off')
 
 # Display the computed perceived brightness
 plt.subplot(1, 3, 3)
 plt.imshow(perceived_brightness, cmap='gray')
-plt.title("Perceived Brightness")
+plt.title(f"Mean Perceived Brightness: {mean_perceived_brightness:.2f}")
 plt.axis('off')
 
 plt.tight_layout()
